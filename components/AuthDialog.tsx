@@ -41,7 +41,14 @@ export function AuthDialog() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), email: email.trim(), password })
       });
-      const j = (await r.json()) as { user?: User; error?: string };
+      const text = await r.text();
+      let j: { user?: User; error?: string } = {};
+      try {
+        j = text ? (JSON.parse(text) as typeof j) : {};
+      } catch {
+        j = {};
+      }
+      if (!r.ok && !j.error) j.error = "The server could not complete this request. Please try again in a moment.";
       if (!r.ok || !j.user) throw new Error(j.error || "Something went wrong.");
       setUser(j.user);
       setPassword("");
