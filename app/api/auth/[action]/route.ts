@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { checkLogin, cookieHeader, createUser, getUser, makeToken, normEmail, throttled } from "@/lib/auth";
+import { StorageError, status, checkLogin, cookieHeader, createUser, getUser, makeToken, normEmail, throttled } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,13 +13,34 @@ const json = (body: unknown, status = 200, cookie?: string) =>
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const ip = (req: NextRequest) => req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
 
-export async function GET(req: NextRequest, { params }: { params: { action: string } }) {
-  if (params.action !== "me") return json({ error: "Not found." }, 404);
-  return json({ user: await getUser(req) });
+function fail(e: unknown) {
+  console.error("[auth]", e);
+  const msg =
+    e instanceof StorageError || (e instanceof Error && e.message.startsWith("AUTH_SECRET"))
+      ? e.message
+      : "Something went wrong on the server. Please try again.";
+  return json({ error: msg }, 500);
 }
 
-export async function POST(req: NextRequest, { params }: { params: { action: string } }) {
-  const { action } = params;
+export async function GET(req: NextRequest, { params }: { params: { action: string } }) {
+  if (params.action === "status") return json(await status());
+  if (params.action !== "me") return json({ error: "Not found." }, 404);
+  try {
+    return json({ user: await getUser(req) });
+  } catch {
+    return json({ user: null });
+  }
+}
+
+export async function POST(req: NextRequest, ctx: { params: { action: string } }) {
+  try {
+    return await handle(req, ctx.params.action);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+async function handle(req: NextRequest, action: string) {
 
   if (action === "logout") return json({ ok: true }, 200, cookieHeader("", true));
   if (action !== "register" && action !== "login") return json({ error: "Not found." }, 404);
